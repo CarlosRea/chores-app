@@ -1,337 +1,87 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>New Chore - Roommate Chores</title>
-    <style>
-        :root {
-            --primary-color: #2563eb;
-            --primary-hover: #1d4ed8;
-            --bg-color: #f8fafc;
-            --card-bg: #ffffff;
-            --text-color: #1e293b;
-            --text-muted: #64748b;
-            --border-color: #e2e8f0;
-            --overdue-color: #dc2626;
-            --overdue-bg: #fee2e2;
-            --completed-color: #16a34a;
-            --completed-bg: #dcfce7;
-            --pending-color: #d97706;
-            --pending-bg: #fef3c7;
-        }
+{% extends "chores/base.html" %}
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+{% block title %}New Chore - Household Chores{% endblock %}
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            line-height: 1.5;
-            padding: 2rem 1rem;
-        }
-
-        .container {
-            max-width: 640px;
-            margin: 0 auto;
-        }
-
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
-
-        h1 {
-            font-size: 1.875rem;
-            font-weight: 700;
-        }
-
-        h1 a {
-            color: inherit;
-            text-decoration: none;
-        }
-
-        .user-switcher {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.875rem;
-        }
-
-        .user-switcher select {
-            padding: 0.35rem 0.5rem;
-            border: 1px solid var(--border-color);
-            border-radius: 0.375rem;
-            background: white;
-            font-size: 0.875rem;
-        }
-
-        .profile-prompt-card {
-            background-color: var(--pending-bg);
-            border: 1px solid #fde68a;
-            border-radius: 0.375rem;
-            padding: 1rem;
-            margin-bottom: 1.5rem;
-            text-align: center;
-        }
-
-        .profile-prompt {
-            color: #92400e;
-            font-weight: 500;
-            margin-bottom: 0.5rem;
-        }
-
-        .profile-switch-links {
-            display: flex;
-            justify-content: center;
-            gap: 0.75rem;
-            flex-wrap: wrap;
-        }
-
-        .profile-switch-link {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            background: white;
-            border: 1px solid #d97706;
-            color: #92400e;
-            border-radius: 0.25rem;
-            text-decoration: none;
-            font-size: 0.875rem;
-            font-weight: 500;
-        }
-
-        .profile-switch-link:hover {
-            background: #fef3c7;
-        }
-
-        .form-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 0.5rem;
-            padding: 1.75rem;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        }
-
-        .form-title {
-            font-size: 1.35rem;
-            font-weight: 600;
-            margin-bottom: 1.5rem;
-        }
-
-        .non-field-errors {
-            background-color: var(--overdue-bg);
-            border: 1px solid #fca5a5;
-            border-radius: 0.375rem;
-            padding: 0.75rem 1rem;
-            margin-bottom: 1.25rem;
-            color: var(--overdue-color);
-            font-size: 0.875rem;
-        }
-
-        .non-field-errors p {
-            margin: 0.25rem 0;
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.375rem;
-            margin-bottom: 1.25rem;
-        }
-
-        .form-group label {
-            font-weight: 600;
-            font-size: 0.875rem;
-            color: var(--text-color);
-        }
-
-        .form-control,
-        input[type="text"],
-        input[type="date"],
-        textarea,
-        select {
-            width: 100%;
-            padding: 0.5rem 0.75rem;
-            border: 1px solid var(--border-color);
-            border-radius: 0.375rem;
-            font-size: 0.95rem;
-            font-family: inherit;
-            background: white;
-            color: var(--text-color);
-        }
-
-        textarea {
-            min-height: 100px;
-            resize: vertical;
-        }
-
-        .field-errors {
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-            margin-top: 0.25rem;
-        }
-
-        .error-message {
-            color: var(--overdue-color);
-            font-size: 0.8125rem;
-            font-weight: 500;
-        }
-
-        .form-actions {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-            margin-top: 1.75rem;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0.55rem 1.25rem;
-            border-radius: 0.375rem;
-            font-size: 0.95rem;
-            font-weight: 600;
-            text-decoration: none;
-            cursor: pointer;
-            border: 1px solid transparent;
-            transition: all 0.2s ease;
-        }
-
-        .btn-primary {
-            background-color: var(--primary-color);
-            color: #ffffff;
-            border: none;
-        }
-
-        .btn-primary:hover {
-            background-color: var(--primary-hover);
-        }
-
-        .btn-secondary {
-            background-color: #f1f5f9;
-            color: var(--text-color);
-            border-color: var(--border-color);
-        }
-
-        .btn-secondary:hover {
-            background-color: #e2e8f0;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1><a href="{% url 'chore_list' %}">Roommate Chores</a></h1>
-            <div class="user-switcher">
-                {% if active_roommate %}
-                    <span>Active: <strong>{{ active_roommate.name }}</strong></span>
-                {% else %}
-                    <span>No active profile</span>
-                {% endif %}
-                {% if all_roommates %}
-                    <select aria-label="Switch active profile" onchange="if (this.value) window.location.href=this.value;">
-                        <option value="">Switch profile...</option>
-                        {% for rm in all_roommates %}
-                            <option value="{% url 'switch_user' rm.id %}" {% if active_roommate and active_roommate.id == rm.id %}selected{% endif %}>
-                                {{ rm.name }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                {% endif %}
-            </div>
-        </header>
-
-        {% if needs_profile or not active_roommate %}
-            <div class="profile-prompt-card">
-                <p class="profile-prompt">Please select an active profile before creating a chore. You must select an active roommate to create a chore.</p>
-                {% if all_roommates %}
-                    <div class="profile-switch-links">
-                        {% for rm in all_roommates %}
-                            <a href="{% url 'switch_user' rm.id %}" class="profile-switch-link">{{ rm.name }}</a>
-                        {% endfor %}
-                    </div>
-                {% endif %}
+{% block content %}
+{% if needs_profile or not active_roommate %}
+    <div class="profile-prompt-card">
+        <p class="profile-prompt">Please select an active profile before creating a chore. You must select an active roommate to create a chore.</p>
+        {% if all_roommates %}
+            <div class="profile-switch-links">
+                {% for rm in all_roommates %}
+                    <a href="{% url 'switch_user' user_id=rm.id %}" class="profile-switch-link">{{ rm.name }}</a>
+                {% endfor %}
             </div>
         {% endif %}
+    </div>
+{% endif %}
 
-        <div class="form-card">
-            <h2 class="form-title">Create a New Chore</h2>
+<div class="form-card">
+    <h2 class="form-title">Create a New Chore</h2>
 
-            {% if form.non_field_errors %}
-                <div class="non-field-errors" role="alert">
-                    {% for error in form.non_field_errors %}
-                        <p class="error-message">{{ error }}</p>
+    {% if form.non_field_errors %}
+        <div class="non-field-errors" role="alert">
+            {% for error in form.non_field_errors %}
+                <p class="error-message">{{ error }}</p>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+
+        <div class="form-group">
+            <label for="{{ form.title.id_for_label }}">Title</label>
+            {{ form.title }}
+            {% if form.title.errors %}
+                <div class="field-errors">
+                    {% for error in form.title.errors %}
+                        <span class="error-message">{{ error }}</span>
                     {% endfor %}
                 </div>
             {% endif %}
-
-            <form method="post">
-                {% csrf_token %}
-
-                <div class="form-group">
-                    <label for="{{ form.title.id_for_label }}">Title</label>
-                    {{ form.title }}
-                    {% if form.title.errors %}
-                        <div class="field-errors">
-                            {% for error in form.title.errors %}
-                                <span class="error-message">{{ error }}</span>
-                            {% endfor %}
-                        </div>
-                    {% endif %}
-                </div>
-
-                <div class="form-group">
-                    <label for="{{ form.description.id_for_label }}">Description</label>
-                    {{ form.description }}
-                    {% if form.description.errors %}
-                        <div class="field-errors">
-                            {% for error in form.description.errors %}
-                                <span class="error-message">{{ error }}</span>
-                            {% endfor %}
-                        </div>
-                    {% endif %}
-                </div>
-
-                <div class="form-group">
-                    <label for="{{ form.assigned_to.id_for_label }}">Assigned to</label>
-                    {{ form.assigned_to }}
-                    {% if form.assigned_to.errors %}
-                        <div class="field-errors">
-                            {% for error in form.assigned_to.errors %}
-                                <span class="error-message">{{ error }}</span>
-                            {% endfor %}
-                        </div>
-                    {% endif %}
-                </div>
-
-                <div class="form-group">
-                    <label for="{{ form.due_date.id_for_label }}">Due date</label>
-                    {{ form.due_date }}
-                    {% if form.due_date.errors %}
-                        <div class="field-errors">
-                            {% for error in form.due_date.errors %}
-                                <span class="error-message">{{ error }}</span>
-                            {% endfor %}
-                        </div>
-                    {% endif %}
-                </div>
-
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">Create Chore</button>
-                    <a href="{% url 'chore_list' %}" class="btn btn-secondary cancel-link">Cancel</a>
-                </div>
-            </form>
         </div>
-    </div>
-</body>
-</html>
+
+        <div class="form-group">
+            <label for="{{ form.description.id_for_label }}">Description</label>
+            {{ form.description }}
+            {% if form.description.errors %}
+                <div class="field-errors">
+                    {% for error in form.description.errors %}
+                        <span class="error-message">{{ error }}</span>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.assigned_to.id_for_label }}">Assigned to</label>
+            {{ form.assigned_to }}
+            {% if form.assigned_to.errors %}
+                <div class="field-errors">
+                    {% for error in form.assigned_to.errors %}
+                        <span class="error-message">{{ error }}</span>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.due_date.id_for_label }}">Due date</label>
+            {{ form.due_date }}
+            {% if form.due_date.errors %}
+                <div class="field-errors">
+                    {% for error in form.due_date.errors %}
+                        <span class="error-message">{{ error }}</span>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Create Chore</button>
+            <a href="{% url 'chore_list' %}" class="btn btn-secondary cancel-link">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
