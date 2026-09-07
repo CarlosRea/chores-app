@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from chores.forms import ChoreForm
 from chores.models import Chore, Roommate
-from chores.views import chore_create, chore_list
+from chores.views import chore_create, chore_delete, chore_list, chore_toggle
 
 
 class TestChoreListRouting:
@@ -639,4 +639,359 @@ class TestChoreListNewChoreLink:
         content = response.content.decode()
         assert reverse("chore_create") in content
         assert "New Chore" in content
+
+
+class TestChoreToggleAndDeleteRouting:
+    def test_reverse_chore_toggle(self):
+        """reverse('chore_toggle', kwargs={'pk': 1}) resolves to '/chores/1/toggle/'."""
+        assert reverse("chore_toggle", kwargs={"pk": 1}) == "/chores/1/toggle/"
+
+    def test_reverse_chore_delete(self):
+        """reverse('chore_delete', kwargs={'pk': 1}) resolves to '/chores/1/delete/'."""
+        assert reverse("chore_delete", kwargs={"pk": 1}) == "/chores/1/delete/"
+
+    def test_resolve_chore_toggle(self):
+        """Path '/chores/1/toggle/' maps to chore_toggle view function."""
+        match = resolve("/chores/1/toggle/")
+        assert match.func == chore_toggle
+        assert match.url_name == "chore_toggle"
+
+    def test_resolve_chore_delete(self):
+        """Path '/chores/1/delete/' maps to chore_delete view function."""
+        match = resolve("/chores/1/delete/")
+        assert match.func == chore_delete
+        assert match.url_name == "chore_delete"
+
+
+@pytest.mark.django_db
+class TestChoreActionMethodNotAllowed:
+    @pytest.fixture(autouse=True)
+    def setup_chore(self):
+        alice = Roommate.objects.create(name="Alice")
+        self.chore = Chore.objects.create(
+            title="Test Chore",
+            assigned_to=alice,
+            assigned_by=alice,
+            due_date=timezone.localdate(),
+        )
+
+    def test_chore_toggle_get_returns_405(self, client: Client):
+        """GET request to '/chores/<pk>/toggle/' returns HTTP 405 Method Not Allowed."""
+        url = reverse("chore_toggle", kwargs={"pk": self.chore.pk})
+        response = client.get(url)
+        assert response.status_code == 405
+
+    def test_chore_toggle_non_post_returns_405(self, client: Client):
+        """Non-POST requests (PUT, PATCH, DELETE) to '/chores/<pk>/toggle/' return HTTP 405."""
+        url = reverse("chore_toggle", kwargs={"pk": self.chore.pk})
+        for method in ["put", "patch", "delete"]:
+            response = getattr(client, method)(url)
+            assert response.status_code == 405
+
+    def test_chore_delete_get_returns_405(self, client: Client):
+        """GET request to '/chores/<pk>/delete/' returns HTTP 405 Method Not Allowed."""
+        url = reverse("chore_delete", kwargs={"pk": self.chore.pk})
+        response = client.get(url)
+        assert response.status_code == 405
+
+    def test_chore_delete_non_post_returns_405(self, client: Client):
+        """Non-POST requests (PUT, PATCH) to '/chores/<pk>/delete/' return HTTP 405."""
+        url = reverse("chore_delete", kwargs={"pk": self.chore.pk})
+        for method in ["put", "patch"]:
+            response = getattr(client, method)(url)
+            assert response.status_code == 405
+
+
+@pytest.mark.django_db
+class TestChoreActionNotFound:
+    def test_chore_toggle_nonexistent_pk_returns_404(self, client: Client):
+        """POST request to '/chores/<pk>/toggle/' with non-existent pk returns HTTP 404 Not Found."""
+        url = reverse("chore_toggle", kwargs={"pk": 99999})
+        response = client.post(url)
+        assert response.status_code == 404
+
+    def test_chore_delete_nonexistent_pk_returns_404(self, client: Client):
+        """POST request to '/chores/<pk>/delete/' with non-existent pk returns HTTP 404 Not Found."""
+        url = reverse("chore_delete", kwargs={"pk": 99999})
+        response = client.post(url)
+        assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestChoreToggleView:
+    @pytest.fixture(autouse=True)
+    def setup_data(self):
+        self.alice = Roommate.objects.create(name="Alice")
+        self.bob = Roommate.objects.create(name="Bob")
+
+    def test_toggle_incomplete_chore_sets_completed_and_timestamp(self, client: Client):
+        """POST request to toggle an incomplete chore sets is_completed=True and completed_at."""
+        chore = Chore.objects.create(
+            title="Sweep floors",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+            is_completed=False,
+            completed_at=None,
+        )
+        before = timezone.now()
+        url = reverse("chore_toggle", kwargs={"pk": chore.pk})
+        response = client.post(url)
+
+        assert response.status_code == 302
+        chore.refresh_from_db()
+        assert chore.is_completed is True
+        assert chore.completed_at is not None
+        after = timezone.now()
+        assert before <= chore.completed_at <= after
+
+    def test_toggle_completed_chore_sets_incomplete_and_clears_timestamp(self, client: Client):
+        """POST request to toggle a completed chore sets is_completed=False and completed_at=None."""
+        past_time = timezone.now() - datetime.timedelta(hours=2)
+        chore = Chore.objects.create(
+            title="Clean stove",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+            is_completed=True,
+            completed_at=past_time,
+        )
+        url = reverse("chore_toggle", kwargs={"pk": chore.pk})
+        response = client.post(url)
+
+        assert response.status_code == 302
+        chore.refresh_from_db()
+        assert chore.is_completed is False
+        assert chore.completed_at is None
+
+    def test_toggle_redirect_safe_relative_referer(self, client: Client):
+        """POST to toggle with safe local relative HTTP_REFERER redirects to that referer."""
+        chore = Chore.objects.create(
+            title="Wash dishes",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+        )
+        url = reverse("chore_toggle", kwargs={"pk": chore.pk})
+        response = client.post(url, HTTP_REFERER="/?tab=pending")
+        assert response.status_code == 302
+        assert response.url == "/?tab=pending"
+
+    def test_toggle_redirect_safe_absolute_referer(self, client: Client):
+        """POST to toggle with safe local absolute HTTP_REFERER redirects to that referer."""
+        chore = Chore.objects.create(
+            title="Wash dishes",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+        )
+        url = reverse("chore_toggle", kwargs={"pk": chore.pk})
+        safe_url = "http://testserver/?tab=completed"
+        response = client.post(url, HTTP_REFERER=safe_url)
+        assert response.status_code == 302
+        assert response.url == safe_url
+
+    def test_toggle_redirect_missing_referer(self, client: Client):
+        """POST to toggle without HTTP_REFERER redirects to reverse('chore_list') ('/')."""
+        chore = Chore.objects.create(
+            title="Wash dishes",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+        )
+        url = reverse("chore_toggle", kwargs={"pk": chore.pk})
+        response = client.post(url)
+        assert response.status_code == 302
+        assert response.url == reverse("chore_list")
+
+    def test_toggle_redirect_untrusted_referer(self, client: Client):
+        """POST to toggle with external/untrusted HTTP_REFERER falls back to reverse('chore_list')."""
+        chore = Chore.objects.create(
+            title="Wash dishes",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+        )
+        url = reverse("chore_toggle", kwargs={"pk": chore.pk})
+        for untrusted in ["https://evil.com/phish", "//evil.com/phish", "javascript:alert(1)"]:
+            response = client.post(url, HTTP_REFERER=untrusted)
+            assert response.status_code == 302
+            assert response.url == reverse("chore_list")
+
+
+@pytest.mark.django_db
+class TestChoreDeleteView:
+    @pytest.fixture(autouse=True)
+    def setup_data(self):
+        self.alice = Roommate.objects.create(name="Alice")
+        self.bob = Roommate.objects.create(name="Bob")
+
+    def test_delete_removes_chore_from_database(self, client: Client):
+        """POST request to delete removes the chore record from the database."""
+        chore = Chore.objects.create(
+            title="Take out recycling",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+        )
+        chore_id = chore.pk
+        url = reverse("chore_delete", kwargs={"pk": chore_id})
+        response = client.post(url)
+
+        assert response.status_code == 302
+        assert not Chore.objects.filter(pk=chore_id).exists()
+        assert Chore.objects.count() == 0
+
+    def test_delete_redirect_safe_relative_referer(self, client: Client):
+        """POST to delete with safe local relative HTTP_REFERER redirects to that referer."""
+        chore = Chore.objects.create(
+            title="Mow lawn",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+        )
+        url = reverse("chore_delete", kwargs={"pk": chore.pk})
+        response = client.post(url, HTTP_REFERER="/?tab=all")
+        assert response.status_code == 302
+        assert response.url == "/?tab=all"
+
+    def test_delete_redirect_safe_absolute_referer(self, client: Client):
+        """POST to delete with safe local absolute HTTP_REFERER redirects to that referer."""
+        chore = Chore.objects.create(
+            title="Mow lawn",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+        )
+        url = reverse("chore_delete", kwargs={"pk": chore.pk})
+        safe_url = "http://testserver/?tab=mine"
+        response = client.post(url, HTTP_REFERER=safe_url)
+        assert response.status_code == 302
+        assert response.url == safe_url
+
+    def test_delete_redirect_missing_referer(self, client: Client):
+        """POST to delete without HTTP_REFERER redirects to reverse('chore_list') ('/')."""
+        chore = Chore.objects.create(
+            title="Mow lawn",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+        )
+        url = reverse("chore_delete", kwargs={"pk": chore.pk})
+        response = client.post(url)
+        assert response.status_code == 302
+        assert response.url == reverse("chore_list")
+
+    def test_delete_redirect_untrusted_referer(self, client: Client):
+        """POST to delete with untrusted/external HTTP_REFERER falls back to reverse('chore_list')."""
+        chore = Chore.objects.create(
+            title="Mow lawn",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+        )
+        url = reverse("chore_delete", kwargs={"pk": chore.pk})
+        response = client.post(url, HTTP_REFERER="https://attacker.com/steal")
+        assert response.status_code == 302
+        assert response.url == reverse("chore_list")
+
+    def test_delete_redirect_untrusted_schemeless_referer(self, client: Client):
+        """POST to delete with untrusted schemeless HTTP_REFERER falls back to reverse('chore_list')."""
+        chore = Chore.objects.create(
+            title="Mow lawn 2",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+        )
+        url = reverse("chore_delete", kwargs={"pk": chore.pk})
+        response = client.post(url, HTTP_REFERER="//attacker.com/steal")
+        assert response.status_code == 302
+        assert response.url == reverse("chore_list")
+
+
+@pytest.mark.django_db
+class TestChoreCardActionsRendering:
+    @pytest.fixture(autouse=True)
+    def setup_chores(self):
+        self.alice = Roommate.objects.create(name="Alice")
+        self.bob = Roommate.objects.create(name="Bob")
+
+        self.incomplete_chore = Chore.objects.create(
+            title="Dust Shelves",
+            assigned_to=self.alice,
+            assigned_by=self.bob,
+            due_date=timezone.localdate(),
+            is_completed=False,
+        )
+        self.completed_chore = Chore.objects.create(
+            title="Water Plants",
+            assigned_to=self.bob,
+            assigned_by=self.alice,
+            due_date=timezone.localdate(),
+            is_completed=True,
+        )
+
+    def test_chore_card_renders_toggle_form_and_button_states(self, client: Client):
+        """Each chore card renders a POST form to toggle with CSRF and appropriate button text."""
+        response = client.get(reverse("chore_list"))
+        content = response.content.decode()
+
+        toggle_url_incomplete = reverse("chore_toggle", kwargs={"pk": self.incomplete_chore.pk})
+        toggle_url_completed = reverse("chore_toggle", kwargs={"pk": self.completed_chore.pk})
+
+        # Check forms exist
+        assert f'action="{toggle_url_incomplete}"' in content
+        assert f'action="{toggle_url_completed}"' in content
+        assert 'method="post"' in content
+
+        # Check button text
+        assert "Done" in content or "Mark Complete" in content
+        assert "Undo" in content or "Mark Incomplete" in content
+
+    def test_chore_card_renders_delete_form_and_button(self, client: Client):
+        """Each chore card renders a POST form to delete with CSRF and a Delete button."""
+        response = client.get(reverse("chore_list"))
+        content = response.content.decode()
+
+        delete_url_incomplete = reverse("chore_delete", kwargs={"pk": self.incomplete_chore.pk})
+        delete_url_completed = reverse("chore_delete", kwargs={"pk": self.completed_chore.pk})
+
+        assert f'action="{delete_url_incomplete}"' in content
+        assert f'action="{delete_url_completed}"' in content
+        assert "Delete" in content
+
+    def test_chore_card_forms_include_csrf_token(self, client: Client):
+        """Chore cards include CSRF token fields in action forms."""
+        response = client.get(reverse("chore_list"))
+        content = response.content.decode()
+        assert 'name="csrfmiddlewaretoken"' in content
+
+
+@pytest.mark.django_db
+class TestChoreActionCSRF:
+    def test_toggle_post_without_csrf_returns_403(self):
+        """Submitting POST to '/chores/<pk>/toggle/' without CSRF returns 403."""
+        alice = Roommate.objects.create(name="Alice")
+        chore = Chore.objects.create(
+            title="Test chore",
+            assigned_to=alice,
+            assigned_by=alice,
+            due_date=timezone.localdate(),
+        )
+        csrf_client = Client(enforce_csrf_checks=True)
+        response = csrf_client.post(reverse("chore_toggle", kwargs={"pk": chore.pk}))
+        assert response.status_code == 403
+
+    def test_delete_post_without_csrf_returns_403(self):
+        """Submitting POST to '/chores/<pk>/delete/' without CSRF returns 403."""
+        alice = Roommate.objects.create(name="Alice")
+        chore = Chore.objects.create(
+            title="Test chore",
+            assigned_to=alice,
+            assigned_by=alice,
+            due_date=timezone.localdate(),
+        )
+        csrf_client = Client(enforce_csrf_checks=True)
+        response = csrf_client.post(reverse("chore_delete", kwargs={"pk": chore.pk}))
+        assert response.status_code == 403
 

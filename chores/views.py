@@ -3,6 +3,7 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.http import require_POST
 from .forms import ChoreForm
 from .models import Chore, Roommate
 
@@ -132,4 +133,38 @@ def chore_create(request: HttpRequest) -> HttpResponse:
         },
         status=200,
     )
+
+
+@require_POST
+def chore_toggle(request: HttpRequest, pk: int) -> HttpResponse:
+    chore = get_object_or_404(Chore, pk=pk)
+    if chore.is_completed:
+        chore.is_completed = False
+        chore.completed_at = None
+    else:
+        chore.is_completed = True
+        chore.completed_at = timezone.now()
+    chore.save()
+
+    referer = request.META.get('HTTP_REFERER')
+    if referer and url_has_allowed_host_and_scheme(
+        referer,
+        allowed_hosts={request.get_host()},
+    ):
+        return redirect(referer)
+    return redirect('chore_list')
+
+
+@require_POST
+def chore_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    chore = get_object_or_404(Chore, pk=pk)
+    chore.delete()
+
+    referer = request.META.get('HTTP_REFERER')
+    if referer and url_has_allowed_host_and_scheme(
+        referer,
+        allowed_hosts={request.get_host()},
+    ):
+        return redirect(referer)
+    return redirect('chore_list')
 

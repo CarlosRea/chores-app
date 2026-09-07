@@ -267,6 +267,57 @@
         .profile-switch-link:hover {
             background: #fef3c7;
         }
+
+        .chore-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.25rem;
+        }
+
+        .chore-actions form {
+            display: inline-block;
+            margin: 0;
+        }
+
+        .btn-action {
+            padding: 0.35rem 0.75rem;
+            border-radius: 0.375rem;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .btn-toggle {
+            background-color: var(--primary-color);
+            color: #ffffff;
+        }
+
+        .btn-toggle:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .btn-undo {
+            background-color: #f1f5f9;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-undo:hover {
+            background-color: #e2e8f0;
+        }
+
+        .btn-delete {
+            background-color: #fee2e2;
+            color: var(--overdue-color);
+            border: 1px solid #fecaca;
+        }
+
+        .btn-delete:hover {
+            background-color: #fca5a5;
+        }
     </style>
 </head>
 <body>
@@ -342,6 +393,16 @@
                             <span class="chore-assigned-to">Assigned to: <strong>{{ chore.assigned_to.name }}</strong></span>
                             <span class="chore-assigned-by">Assigned by: <strong>{{ chore.assigned_by.name }}</strong></span>
                             <span class="chore-due-date">Due: <strong>{{ chore.due_date|date:"Y-m-d" }}</strong></span>
+                        </div>
+                        <div class="chore-actions">
+                            <form method="post" action="{% url 'chore_toggle' chore.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn-action {% if chore.is_completed %}btn-undo{% else %}btn-toggle{% endif %}">{% if chore.is_completed %}Undo{% else %}Done{% endif %}</button>
+                            </form>
+                            <form method="post" action="{% url 'chore_delete' chore.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn-action btn-delete">Delete</button>
+                            </form>
                         </div>
                     </li>
                 {% endfor %}
