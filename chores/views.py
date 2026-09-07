@@ -3,7 +3,7 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-
+from .forms import ChoreForm
 from .models import Chore, Roommate
 
 VALID_TABS = {'all', 'mine', 'pending', 'completed'}
@@ -73,3 +73,63 @@ def switch_user(request: HttpRequest, user_id: int) -> HttpResponse:
     ):
         return redirect(referer)
     return redirect('/')
+
+
+def chore_create(request: HttpRequest) -> HttpResponse:
+    active_roommate_id = (
+        request.session.get('active_roommate_id')
+        if hasattr(request, 'session')
+        else None
+    )
+    active_roommate = None
+    if active_roommate_id is not None:
+        try:
+            active_roommate = Roommate.objects.filter(id=active_roommate_id).first()
+        except (ValueError, TypeError):
+            active_roommate = None
+
+    if request.method == 'POST':
+        form = ChoreForm(request.POST)
+        if not active_roommate:
+            form.is_valid()
+            form.add_error(
+                None,
+                "Please select an active profile before creating a chore. You must select an active roommate to create a chore.",
+            )
+            return render(
+                request,
+                'chores/chore_form.html',
+                {
+                    'form': form,
+                    'needs_profile': True,
+                },
+                status=200,
+            )
+
+        if form.is_valid():
+            chore = form.save(commit=False)
+            chore.assigned_by = active_roommate
+            chore.save()
+            return redirect('chore_list')
+        else:
+            return render(
+                request,
+                'chores/chore_form.html',
+                {
+                    'form': form,
+                    'needs_profile': False,
+                },
+                status=200,
+            )
+
+    form = ChoreForm()
+    return render(
+        request,
+        'chores/chore_form.html',
+        {
+            'form': form,
+            'needs_profile': active_roommate is None,
+        },
+        status=200,
+    )
+

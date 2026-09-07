@@ -4,8 +4,9 @@ from django.test import Client, RequestFactory
 from django.urls import resolve, reverse
 from django.utils import timezone
 
+from chores.forms import ChoreForm
 from chores.models import Chore, Roommate
-from chores.views import chore_list
+from chores.views import chore_create, chore_list
 
 
 class TestChoreListRouting:
@@ -437,3 +438,205 @@ class TestEmptyStateDisplay:
         content = response.content.decode()
         assert "No chores found." in content
         assert "Please select an active profile to view your assigned chores." in content
+
+
+class TestChoreCreateRouting:
+    def test_reverse_chore_create(self):
+        """reverse('chore_create') resolves to '/chores/new/'."""
+        assert reverse("chore_create") == "/chores/new/"
+
+    def test_resolve_chore_create(self):
+        """Path '/chores/new/' resolves to chore_create view function."""
+        match = resolve("/chores/new/")
+        assert match.func == chore_create
+        assert match.url_name == "chore_create"
+
+
+@pytest.mark.django_db
+class TestChoreCreateGetView:
+    def test_chore_create_get_status_200(self, client: Client):
+        """GET request to '/chores/new/' returns HTTP status code 200 OK."""
+        response = client.get(reverse("chore_create"))
+        assert response.status_code == 200
+
+    def test_chore_create_template_used(self, client: Client):
+        """GET request renders chores/templates/chores/chore_form.html."""
+        response = client.get(reverse("chore_create"))
+        template_names = [t.name for t in response.templates if t.name]
+        assert "chores/chore_form.html" in template_names
+
+    def test_chore_create_context_contains_unbound_form(self, client: Client):
+        """GET request context contains an unbound ChoreForm instance under key 'form'."""
+        response = client.get(reverse("chore_create"))
+        assert "form" in response.context
+        form = response.context["form"]
+        assert isinstance(form, ChoreForm)
+        assert not form.is_bound
+
+    def test_chore_create_renders_form_tag_and_csrf(self, client: Client):
+        """Rendered form in chore_form.html contains '<form method=\"post\">' and valid csrf token."""
+        response = client.get(reverse("chore_create"))
+        content = response.content.decode()
+        assert '<form method="post">' in content
+        assert 'name="csrfmiddlewaretoken"' in content
+
+    def test_chore_create_renders_form_controls(self, client: Client):
+        """Template renders visible form controls for title, description, assigned_to, due_date."""
+        response = client.get(reverse("chore_create"))
+        content = response.content.decode()
+        assert 'name="title"' in content
+        assert 'name="description"' in content
+        assert 'name="assigned_to"' in content
+        assert 'name="due_date"' in content
+
+    def test_chore_create_renders_submit_button(self, client: Client):
+        """Template includes a submit button to create the chore."""
+        response = client.get(reverse("chore_create"))
+        content = response.content.decode()
+        assert 'type="submit"' in content
+
+    def test_chore_create_renders_cancel_link_to_chore_list(self, client: Client):
+        """Template includes a cancel/back link navigating to reverse('chore_list') ('/')."""
+        response = client.get(reverse("chore_create"))
+        content = response.content.decode()
+        assert f'href="{reverse("chore_list")}"' in content
+        assert "Cancel" in content
+
+    def test_chore_create_get_without_active_roommate_displays_prompt(self, client: Client):
+        """When GET to '/chores/new/' without active roommate in session, warning prompt is displayed."""
+        response = client.get(reverse("chore_create"))
+        assert response.status_code == 200
+        assert response.context["needs_profile"] is True
+        content = response.content.decode()
+        assert "select an active profile" in content or "select an active roommate" in content
+
+    def test_chore_create_get_with_active_roommate_no_warning(self, client: Client):
+        """When GET to '/chores/new/' with active roommate in session, warning prompt is not shown."""
+        alice = Roommate.objects.create(name="Alice")
+        session = client.session
+        session["active_roommate_id"] = alice.id
+        session.save()
+
+        response = client.get(reverse("chore_create"))
+        assert response.status_code == 200
+        assert response.context["needs_profile"] is False
+
+
+@pytest.mark.django_db
+class TestChoreCreateCSRF:
+    def test_post_without_csrf_returns_403(self):
+        """Submitting POST to '/chores/new/' without a CSRF token returns HTTP status code 403 Forbidden."""
+        csrf_client = Client(enforce_csrf_checks=True)
+        response = csrf_client.post(
+            reverse("chore_create"),
+            data={"title": "Test chore"},
+        )
+        assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestChoreCreatePostSubmission:
+    @pytest.fixture(autouse=True)
+    def setup_data(self):
+        self.alice = Roommate.objects.create(name="Alice")
+        self.bob = Roommate.objects.create(name="Bob")
+
+    def test_valid_post_creates_chore_and_redirects_to_chore_list(self, client: Client):
+        """When active roommate in session, submitting valid form creates Chore with assigned_by and redirects (302)."""
+        session = client.session
+        session["active_roommate_id"] = self.alice.id
+        session.save()
+
+        post_data = {
+            "title": "Clean kitchen",
+            "description": "Wipe counters and mop floor.",
+            "assigned_to": self.bob.id,
+            "due_date": "2026-10-15",
+        }
+        response = client.post(reverse("chore_create"), data=post_data)
+
+        assert response.status_code == 302
+        assert response.url == reverse("chore_list")
+        assert Chore.objects.count() == 1
+
+        chore = Chore.objects.first()
+        assert chore.title == "Clean kitchen"
+        assert chore.description == "Wipe counters and mop floor."
+        assert chore.assigned_to == self.bob
+        assert chore.assigned_by == self.alice
+        assert chore.due_date == datetime.date(2026, 10, 15)
+        assert chore.is_completed is False
+
+    def test_invalid_post_data_does_not_create_chore_and_rerenders_with_errors(self, client: Client):
+        """When POST contains invalid/missing data, no record is created and form re-renders with 200."""
+        session = client.session
+        session["active_roommate_id"] = self.alice.id
+        session.save()
+
+        post_data = {
+            "title": "",
+            "description": "Preserved description text",
+            "assigned_to": self.bob.id,
+            "due_date": "2026-10-15",
+        }
+        response = client.post(reverse("chore_create"), data=post_data)
+
+        assert response.status_code == 200
+        assert Chore.objects.count() == 0
+        template_names = [t.name for t in response.templates if t.name]
+        assert "chores/chore_form.html" in template_names
+        assert response.context["form"].errors
+        assert "title" in response.context["form"].errors
+
+        content = response.content.decode()
+        assert "Preserved description text" in content
+
+    def test_post_without_active_roommate_does_not_create_chore_and_rerenders_error(self, client: Client):
+        """When POST without active roommate in session, no record is created and form re-renders with error."""
+        post_data = {
+            "title": "Clean kitchen",
+            "description": "Some description",
+            "assigned_to": self.bob.id,
+            "due_date": "2026-10-15",
+        }
+        response = client.post(reverse("chore_create"), data=post_data)
+
+        assert response.status_code == 200
+        assert Chore.objects.count() == 0
+        template_names = [t.name for t in response.templates if t.name]
+        assert "chores/chore_form.html" in template_names
+
+        content = response.content.decode()
+        assert "select an active profile" in content or "select an active roommate" in content
+        assert "Some description" in content
+
+    def test_post_with_invalid_active_roommate_id_in_session(self, client: Client):
+        """When POST with invalid active_roommate_id in session, no record is created and error displayed."""
+        session = client.session
+        session["active_roommate_id"] = 99999
+        session.save()
+
+        post_data = {
+            "title": "Clean kitchen",
+            "description": "Some description",
+            "assigned_to": self.bob.id,
+            "due_date": "2026-10-15",
+        }
+        response = client.post(reverse("chore_create"), data=post_data)
+
+        assert response.status_code == 200
+        assert Chore.objects.count() == 0
+        content = response.content.decode()
+        assert "select an active profile" in content or "select an active roommate" in content
+
+
+@pytest.mark.django_db
+class TestChoreListNewChoreLink:
+    def test_chore_list_contains_new_chore_link(self, client: Client):
+        """Template chores/chore_list.html includes a visible 'New Chore' link pointing to reverse('chore_create')."""
+        response = client.get(reverse("chore_list"))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert reverse("chore_create") in content
+        assert "New Chore" in content
+
